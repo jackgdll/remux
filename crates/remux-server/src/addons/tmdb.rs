@@ -688,6 +688,12 @@ impl From<&sdks::tmdb::Episode> for db::Media {
             released_at: ep
                 .air_date
                 .and_then(|d| d.and_hms_opt(0, 0, 0)),
+            // TV has no separate digital release: the air date is its availability.
+            // Mirror the season conversion (and Stremio) so the release-date filter
+            // judges episodes on their air date instead of hiding them as undated.
+            digital_released_at: ep
+                .air_date
+                .and_then(|d| d.and_hms_opt(0, 0, 0)),
             refreshed_at: Some(chrono::Utc::now().naive_utc()),
             ..Default::default()
         };
@@ -1726,6 +1732,11 @@ async fn fetch_tmdb_meta(
                     released_at: ep_details
                         .air_date
                         .and_then(|d| d.and_hms_opt(0, 0, 0)),
+                    // Air date doubles as the digital release date for episodes; see
+                    // the `From<&tmdb::Episode>` conversion.
+                    digital_released_at: ep_details
+                        .air_date
+                        .and_then(|d| d.and_hms_opt(0, 0, 0)),
                     runtime: ep_details
                         .runtime
                         .map(|r| r * 60),
@@ -2563,6 +2574,26 @@ mod tests {
                     "external_ids": { "imdb_id": imdb }
                 }));
         });
+    }
+
+    #[test]
+    fn tmdb_episode_conversion_sets_digital_release_to_air_date() {
+        let air = chrono::NaiveDate::from_ymd_opt(2026, 6, 21).unwrap();
+        let ep = sdks::tmdb::Episode {
+            id: 7196563,
+            name: "Salt and Sea, Fire and Blood".to_string(),
+            season_number: 3,
+            episode_number: 1,
+            air_date: Some(air),
+            ..Default::default()
+        };
+        let media: db::Media = (&ep).into();
+        let expected = air.and_hms_opt(0, 0, 0);
+        assert_eq!(media.released_at, expected);
+        assert_eq!(
+            media.digital_released_at, expected,
+            "episode digital_released_at must mirror its air date"
+        );
     }
 
     #[tokio::test]
